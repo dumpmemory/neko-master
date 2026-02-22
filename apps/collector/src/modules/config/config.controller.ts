@@ -7,6 +7,8 @@ declare module "fastify" {
   interface FastifyInstance {
     db: StatsDatabase;
     realtimeStore: RealtimeStore;
+    clearAgentRuntimeState?: (backendId?: number) => void;
+    notifyBackendDataCleared?: (backendId: number) => void;
   }
 }
 
@@ -201,11 +203,16 @@ const configController: FastifyPluginAsync = async (fastify: FastifyInstance): P
     if (days === 0) {
       if (backendId !== undefined) {
         fastify.realtimeStore.clearBackend(backendId);
+        fastify.clearAgentRuntimeState?.(backendId);
+        fastify.notifyBackendDataCleared?.(backendId);
       } else {
         const backends = fastify.db.getAllBackends();
         for (const backend of backends) {
           fastify.realtimeStore.clearBackend(backend.id);
+          fastify.clearAgentRuntimeState?.(backend.id);
+          fastify.notifyBackendDataCleared?.(backend.id);
         }
+        fastify.clearAgentRuntimeState?.();
       }
 
       return {

@@ -16,6 +16,7 @@ import type { TrafficUpdate } from '../db/db.js';
 import { SurgePolicySyncService } from '../surge/surge-policy-sync.js';
 import type { GeoIPService } from '../geo/geo.service.js';
 import { BatchBuffer } from '../collector/batch-buffer.js';
+import { TrafficWriteError } from '../clickhouse/clickhouse.writer.js';
 
 // Import modules
 import { BackendService, backendController } from '../backend/index.js';
@@ -30,6 +31,8 @@ declare module 'fastify' {
     realtimeStore: RealtimeStore;
     backendService: BackendService;
     statsService: StatsService;
+    clearAgentRuntimeState?: (backendId?: number) => void;
+    notifyBackendDataCleared?: (backendId: number) => void;
   }
 }
 
@@ -130,52 +133,70 @@ export async function createApp(options: AppOptions) {
   // interval. Ensures each connection contributes connections=1 exactly once per flush
   // interval, consistent with direct mode's countedConnectionIds deduplication.
   const agentCountedByBackend = new Map<number, Set<string>>();
+  // Per-backend flush lock — mirrors direct mode's isFlushing to prevent a slow CH write
+  // from letting the next timer tick start a second flush before clearTraffic completes.
+  const agentIsFlushing = new Map<number, boolean>();
   const AGENT_FLUSH_INTERVAL_MS = Math.max(
     5_000,
     Number.parseInt(process.env.AGENT_FLUSH_INTERVAL_MS || '30000', 10) || 30_000,
   );
 
   const flushAgentBuffer = async (backendId: number, buffer: BatchBuffer) => {
-    if (!buffer.hasPending()) return;
-    const stats = buffer.flush(db, geoService, backendId, 'Agent');
+    if (agentIsFlushing.get(backendId) || !buffer.hasPending()) return;
 
-    let trafficDetailOk = true;
-    let trafficAggOk = true;
-    if (stats.pendingTrafficWrite) {
-      try {
-        const outcome = await stats.pendingTrafficWrite;
-        trafficDetailOk = outcome.detailOk;
-        trafficAggOk = outcome.aggOk;
-      } catch {
-        trafficDetailOk = false;
-        trafficAggOk = false;
+    agentIsFlushing.set(backendId, true);
+    try {
+      const stats = buffer.flush(db, geoService, backendId, 'Agent');
+
+      let trafficDetailOk = true;
+      let trafficAggOk = true;
+      if (stats.pendingTrafficWrite) {
+        try {
+          const outcome = await stats.pendingTrafficWrite;
+          trafficDetailOk = outcome.detailOk;
+          trafficAggOk = outcome.aggOk;
+        } catch (err) {
+          if (err instanceof TrafficWriteError) {
+            trafficDetailOk = err.detailOk;
+            trafficAggOk = err.aggOk;
+          } else {
+            trafficDetailOk = false;
+            trafficAggOk = false;
+          }
+          console.warn(
+            `[Agent:${backendId}] ClickHouse traffic write failed detail_ok=${trafficDetailOk} agg_ok=${trafficAggOk}`,
+            err,
+          );
+        }
       }
-    }
 
-    if (stats.hasTrafficUpdates && stats.trafficOk) {
-      if (trafficDetailOk && trafficAggOk) {
-        realtimeStore.clearTraffic(backendId);
-        agentCountedByBackend.delete(backendId);
-      } else if (trafficDetailOk && !trafficAggOk) {
-        realtimeStore.clearTrafficDimensions(backendId);
-        agentCountedByBackend.delete(backendId);
-      } else if (!trafficDetailOk && trafficAggOk) {
-        realtimeStore.clearTrafficSummary(backendId);
-        agentCountedByBackend.delete(backendId);
+      if (stats.hasTrafficUpdates && stats.trafficOk) {
+        if (trafficDetailOk && trafficAggOk) {
+          realtimeStore.clearTraffic(backendId);
+          agentCountedByBackend.delete(backendId);
+        } else if (trafficDetailOk && !trafficAggOk) {
+          realtimeStore.clearTrafficDimensions(backendId);
+          agentCountedByBackend.delete(backendId);
+        } else if (!trafficDetailOk && trafficAggOk) {
+          realtimeStore.clearTrafficSummary(backendId);
+          agentCountedByBackend.delete(backendId);
+        }
       }
-    }
 
-    let countryWriteOk = true;
-    if (stats.pendingCountryWrite) {
-      try {
-        await stats.pendingCountryWrite;
-      } catch {
-        countryWriteOk = false;
+      let countryWriteOk = true;
+      if (stats.pendingCountryWrite) {
+        try {
+          await stats.pendingCountryWrite;
+        } catch {
+          countryWriteOk = false;
+        }
       }
-    }
 
-    if (stats.hasCountryUpdates && stats.countryOk && countryWriteOk) {
-      realtimeStore.clearCountries(backendId);
+      if (stats.hasCountryUpdates && stats.countryOk && countryWriteOk) {
+        realtimeStore.clearCountries(backendId);
+      }
+    } finally {
+      agentIsFlushing.set(backendId, false);
     }
   };
 
@@ -186,6 +207,22 @@ export async function createApp(options: AppOptions) {
       });
     }
   }, AGENT_FLUSH_INTERVAL_MS);
+  const clearAgentRuntimeState = (backendId?: number) => {
+    if (backendId !== undefined) {
+      agentBatchBuffers.get(backendId)?.clear();
+      agentBatchBuffers.delete(backendId);
+      agentCountedByBackend.delete(backendId);
+      agentIsFlushing.delete(backendId);
+      return;
+    }
+
+    for (const buffer of agentBatchBuffers.values()) {
+      buffer.clear();
+    }
+    agentBatchBuffers.clear();
+    agentCountedByBackend.clear();
+    agentIsFlushing.clear();
+  };
   const REQUEST_ID_TTL_MS = 5 * 60 * 1000;
   function isDuplicateRequestId(id: string): boolean {
     const now = Date.now();
@@ -241,6 +278,11 @@ export async function createApp(options: AppOptions) {
   app.decorate('authService', authService);
   app.decorate('db', db);
   app.decorate('realtimeStore', realtimeStore);
+  app.decorate('clearAgentRuntimeState', clearAgentRuntimeState);
+  app.decorate(
+    'notifyBackendDataCleared',
+    (backendId: number) => onBackendDataCleared?.(backendId),
+  );
 
   const getBackendIdFromQuery = (query: Record<string, unknown>): number | null => {
     const backendId = typeof query.backendId === 'string' ? query.backendId : undefined;
@@ -622,8 +664,9 @@ export async function createApp(options: AppOptions) {
     }
 
     for (const update of updates) {
-      // Connection key matches BatchBuffer's deduplication dimensions (minus minuteKey).
-      const connectionKey = `${update.domain}:${update.ip}:${update.chains.join(' > ')}:${update.sourceIP || ''}`;
+      // Connection key matches BatchBuffer's deduplication dimensions (minus minuteKey):
+      // domain, ip, full chain, rule, rulePayload, sourceIP.
+      const connectionKey = `${update.domain}:${update.ip}:${update.chains.join(' > ')}:${update.rule}:${update.rulePayload}:${update.sourceIP || ''}`;
       const isNewThisFlush = !agentCounted.has(connectionKey);
       agentCounted.add(connectionKey);
 
@@ -708,6 +751,7 @@ export async function createApp(options: AppOptions) {
               geo: r.geo,
               upload: r.stats.upload,
               download: r.stats.download,
+              connections: r.stats.connections,
               timestampMs: r.stats.timestampMs,
             });
           }

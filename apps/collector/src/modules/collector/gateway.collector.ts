@@ -469,6 +469,7 @@ export function createCollector(
                   geo,
                   upload: traffic.upload,
                   download: traffic.download,
+                  connections: traffic.connections,
                   timestampMs: now,
                 });
                 realtimeStore.recordCountryTraffic(
@@ -528,5 +529,15 @@ export function createCollector(
     });
   };
 
-  return collector;
+  const collectorWithReset = collector as GatewayCollector & {
+    clearRuntimeState?: () => void;
+  };
+  collectorWithReset.clearRuntimeState = () => {
+    // Keep active connection baselines to avoid replaying historical cumulative
+    // counters after a DB/log wipe. Only clear pending in-memory deltas.
+    batchBuffer.clear();
+    countedConnectionIds.clear();
+  };
+
+  return collectorWithReset;
 }

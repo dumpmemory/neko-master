@@ -77,15 +77,36 @@ export class CountryRepository extends BaseRepository {
     return stmt.all(backendId, limit) as CountryStatsRow[];
   }
 
-  updateCountryStats(backendId: number, country: string, countryName: string, continent: string, upload: number, download: number, timestampMs?: number): void {
+  updateCountryStats(
+    backendId: number,
+    country: string,
+    countryName: string,
+    continent: string,
+    upload: number,
+    download: number,
+    timestampMs?: number,
+    connections = 1,
+  ): void {
+    const normalizedConnections = Math.max(0, Math.floor(connections));
     const stmt = this.db.prepare(`
       INSERT INTO country_stats (backend_id, country, country_name, continent, total_upload, total_download, total_connections, last_seen)
-      VALUES (?, ?, ?, ?, ?, ?, 1, CURRENT_TIMESTAMP)
+      VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
       ON CONFLICT(backend_id, country) DO UPDATE SET
         total_upload = total_upload + ?, total_download = total_download + ?,
-        total_connections = total_connections + 1, last_seen = CURRENT_TIMESTAMP
+        total_connections = total_connections + ?, last_seen = CURRENT_TIMESTAMP
     `);
-    stmt.run(backendId, country, countryName, continent, upload, download, upload, download);
+    stmt.run(
+      backendId,
+      country,
+      countryName,
+      continent,
+      upload,
+      download,
+      normalizedConnections,
+      upload,
+      download,
+      normalizedConnections,
+    );
 
     const now = new Date(timestampMs ?? Date.now());
     const minute = this.toMinuteKey(now);
@@ -93,31 +114,55 @@ export class CountryRepository extends BaseRepository {
 
     this.db.prepare(`
       INSERT INTO minute_country_stats (backend_id, minute, country, country_name, continent, upload, download, connections)
-      VALUES (?, ?, ?, ?, ?, ?, ?, 1)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(backend_id, minute, country) DO UPDATE SET
-        upload = upload + ?, download = download + ?, connections = connections + 1
-    `).run(backendId, minute, country, countryName, continent, upload, download, upload, download);
+        upload = upload + ?, download = download + ?, connections = connections + ?
+    `).run(
+      backendId,
+      minute,
+      country,
+      countryName,
+      continent,
+      upload,
+      download,
+      normalizedConnections,
+      upload,
+      download,
+      normalizedConnections,
+    );
 
     this.db.prepare(`
       INSERT INTO hourly_country_stats (backend_id, hour, country, country_name, continent, upload, download, connections)
-      VALUES (?, ?, ?, ?, ?, ?, ?, 1)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(backend_id, hour, country) DO UPDATE SET
-        upload = upload + ?, download = download + ?, connections = connections + 1
-    `).run(backendId, hour, country, countryName, continent, upload, download, upload, download);
+        upload = upload + ?, download = download + ?, connections = connections + ?
+    `).run(
+      backendId,
+      hour,
+      country,
+      countryName,
+      continent,
+      upload,
+      download,
+      normalizedConnections,
+      upload,
+      download,
+      normalizedConnections,
+    );
   }
 
   batchUpdateCountryStats(backendId: number, results: Array<{
     country: string; countryName: string; continent: string;
-    upload: number; download: number; timestampMs?: number;
+    upload: number; download: number; connections?: number; timestampMs?: number;
   }>): void {
     if (results.length === 0) return;
 
     const cumulativeStmt = this.db.prepare(`
       INSERT INTO country_stats (backend_id, country, country_name, continent, total_upload, total_download, total_connections, last_seen)
-      VALUES (?, ?, ?, ?, ?, ?, 1, CURRENT_TIMESTAMP)
+      VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
       ON CONFLICT(backend_id, country) DO UPDATE SET
         total_upload = total_upload + ?, total_download = total_download + ?,
-        total_connections = total_connections + 1, last_seen = CURRENT_TIMESTAMP
+        total_connections = total_connections + ?, last_seen = CURRENT_TIMESTAMP
     `);
 
     const minuteStmt = this.db.prepare(`
@@ -145,7 +190,19 @@ export class CountryRepository extends BaseRepository {
       }>();
 
       for (const r of results) {
-        cumulativeStmt.run(backendId, r.country, r.countryName, r.continent, r.upload, r.download, r.upload, r.download);
+        const connections = Math.max(0, Math.floor(r.connections ?? 1));
+        cumulativeStmt.run(
+          backendId,
+          r.country,
+          r.countryName,
+          r.continent,
+          r.upload,
+          r.download,
+          connections,
+          r.upload,
+          r.download,
+          connections,
+        );
         const now = new Date(r.timestampMs ?? Date.now());
         const minute = this.toMinuteKey(now);
         const hour = this.toHourKey(now);
@@ -155,9 +212,9 @@ export class CountryRepository extends BaseRepository {
         if (existing) {
           existing.upload += r.upload;
           existing.download += r.download;
-          existing.connections++;
+          existing.connections += connections;
         } else {
-          minuteMap.set(minuteKey, { minute, country: r.country, countryName: r.countryName, continent: r.continent, upload: r.upload, download: r.download, connections: 1 });
+          minuteMap.set(minuteKey, { minute, country: r.country, countryName: r.countryName, continent: r.continent, upload: r.upload, download: r.download, connections });
         }
 
         const hourlyKey = `${hour}:${r.country}`;
@@ -165,9 +222,9 @@ export class CountryRepository extends BaseRepository {
         if (existingHourly) {
           existingHourly.upload += r.upload;
           existingHourly.download += r.download;
-          existingHourly.connections++;
+          existingHourly.connections += connections;
         } else {
-          hourlyMap.set(hourlyKey, { hour, country: r.country, countryName: r.countryName, continent: r.continent, upload: r.upload, download: r.download, connections: 1 });
+          hourlyMap.set(hourlyKey, { hour, country: r.country, countryName: r.countryName, continent: r.continent, upload: r.upload, download: r.download, connections });
         }
       }
 

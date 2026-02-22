@@ -1221,6 +1221,7 @@ export function BackendConfigDialog({
     try {
       await api.clearLogs(clearLogsDays);
       await loadDbStats();
+      await onBackendChange?.();
       setClearLogsDialogOpen(false);
       toast.success(t("logsCleared"));
     } catch (error: any) {

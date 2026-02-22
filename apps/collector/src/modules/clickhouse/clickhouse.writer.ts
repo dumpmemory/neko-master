@@ -7,6 +7,7 @@ interface CountryMinuteUpdate {
   continent: string;
   upload: number;
   download: number;
+  connections?: number;
   timestampMs?: number;
 }
 
@@ -131,7 +132,7 @@ export class ClickHouseWriter {
       continent: item.continent || '',
       upload: Math.max(0, Math.floor(item.upload)),
       download: Math.max(0, Math.floor(item.download)),
-      connections: 1,
+      connections: Math.max(0, Math.floor(item.connections ?? 1)),
     }));
 
     return this.enqueue(() => this.insertRows('country_buffer', rows, 'country'), rows.length);

@@ -90,6 +90,11 @@ async function main() {
       wsServer.broadcastStats(backendId);
     },
     (backendId: number) => {
+      const collector = collectors.get(backendId) as
+        | (GatewayCollector & { clearRuntimeState?: () => void })
+        | (SurgeCollector & { clearRuntimeState?: () => void })
+        | undefined;
+      collector?.clearRuntimeState?.();
       wsServer.clearBackendCache(backendId);
       wsServer.broadcastStats(backendId, true);
     },

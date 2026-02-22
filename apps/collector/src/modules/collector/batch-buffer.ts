@@ -34,6 +34,7 @@ export interface GeoIPResult {
   } | null;
   upload: number;
   download: number;
+  connections?: number;
   timestampMs?: number;
 }
 
@@ -99,6 +100,11 @@ export class BatchBuffer {
 
   hasPending(): boolean {
     return this.buffer.size > 0 || this.geoQueue.length > 0;
+  }
+
+  clear(): void {
+    this.buffer.clear();
+    this.geoQueue = [];
   }
 
   flush(
@@ -169,6 +175,7 @@ export class BatchBuffer {
             continent: r.geo.continent || 'Unknown',
             upload: r.upload,
             download: r.download,
+            connections: Math.max(0, Math.floor(r.connections ?? 1)),
             timestampMs: r.timestampMs,
           }));
         hasCountryUpdates = countryUpdates.length > 0;

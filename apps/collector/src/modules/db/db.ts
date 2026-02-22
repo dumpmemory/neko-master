@@ -700,8 +700,8 @@ export class StatsDatabase {
       () => this.repos.country.getCountryStats(backendId, limit, start, end),
     );
   }
-  updateCountryStats(backendId: number, country: string, countryName: string, continent: string, upload: number, download: number) { this.repos.country.updateCountryStats(backendId, country, countryName, continent, upload, download); }
-  batchUpdateCountryStats(backendId: number, results: Array<{ country: string; countryName: string; continent: string; upload: number; download: number; timestampMs?: number }>) { this.repos.country.batchUpdateCountryStats(backendId, results); }
+  updateCountryStats(backendId: number, country: string, countryName: string, continent: string, upload: number, download: number, timestampMs?: number, connections?: number) { this.repos.country.updateCountryStats(backendId, country, countryName, continent, upload, download, timestampMs, connections); }
+  batchUpdateCountryStats(backendId: number, results: Array<{ country: string; countryName: string; continent: string; upload: number; download: number; connections?: number; timestampMs?: number }>) { this.repos.country.batchUpdateCountryStats(backendId, results); }
 
   // ==================== Device ====================
   getDevices(backendId: number, limit?: number, start?: string, end?: string) {
