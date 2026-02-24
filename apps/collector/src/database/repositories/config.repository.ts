@@ -237,10 +237,12 @@ export class ConfigRepository extends BaseRepository {
         this.db.prepare(`DELETE FROM device_domain_stats WHERE backend_id = ?`).run(backendId);
         this.db.prepare(`DELETE FROM device_ip_stats WHERE backend_id = ?`).run(backendId);
         this.db.prepare(`DELETE FROM hourly_stats WHERE backend_id = ?`).run(backendId);
+        this.db.prepare(`DELETE FROM backend_health_logs WHERE backend_id = ?`).run(backendId);
       } else {
         const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
         const minuteCutoff = cutoff.toISOString().slice(0, 16) + ':00';
         const hourCutoff = cutoff.toISOString().slice(0, 13) + ':00:00';
+        const healthCutoff = cutoff.toISOString().slice(0, 16);
         const minuteResult = this.db.prepare(`DELETE FROM minute_stats WHERE backend_id = ? AND minute < ?`).run(backendId, minuteCutoff);
         deletedConnections = minuteResult.changes;
         deletedLogs = minuteResult.changes;
@@ -249,6 +251,7 @@ export class ConfigRepository extends BaseRepository {
         this.db.prepare(`DELETE FROM hourly_dim_stats WHERE backend_id = ? AND hour < ?`).run(backendId, hourCutoff);
         this.db.prepare(`DELETE FROM hourly_country_stats WHERE backend_id = ? AND hour < ?`).run(backendId, hourCutoff);
         this.db.prepare(`DELETE FROM connection_logs WHERE backend_id = ? AND timestamp < ?`).run(backendId, cutoff.toISOString());
+        this.db.prepare(`DELETE FROM backend_health_logs WHERE backend_id = ? AND minute < ?`).run(backendId, healthCutoff);
       }
     } else {
       if (days === 0) {
@@ -277,10 +280,12 @@ export class ConfigRepository extends BaseRepository {
         this.db.prepare(`DELETE FROM device_domain_stats`).run();
         this.db.prepare(`DELETE FROM device_ip_stats`).run();
         this.db.prepare(`DELETE FROM hourly_stats`).run();
+        this.db.prepare(`DELETE FROM backend_health_logs`).run();
       } else {
         const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
         const minuteCutoff = cutoff.toISOString().slice(0, 16) + ':00';
         const hourCutoff = cutoff.toISOString().slice(0, 13) + ':00:00';
+        const healthCutoff = cutoff.toISOString().slice(0, 16);
         const minuteResult = this.db.prepare(`DELETE FROM minute_stats WHERE minute < ?`).run(minuteCutoff);
         deletedConnections = minuteResult.changes;
         deletedLogs = minuteResult.changes;
@@ -289,6 +294,7 @@ export class ConfigRepository extends BaseRepository {
         this.db.prepare(`DELETE FROM hourly_dim_stats WHERE hour < ?`).run(hourCutoff);
         this.db.prepare(`DELETE FROM hourly_country_stats WHERE hour < ?`).run(hourCutoff);
         this.db.prepare(`DELETE FROM connection_logs WHERE timestamp < ?`).run(cutoff.toISOString());
+        this.db.prepare(`DELETE FROM backend_health_logs WHERE minute < ?`).run(healthCutoff);
       }
     }
 

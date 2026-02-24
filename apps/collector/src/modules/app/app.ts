@@ -83,6 +83,7 @@ type AgentHeartbeatPayload = {
   version?: string;
   gatewayType?: string;
   gatewayUrl?: string;
+  gatewayLatencyMs?: number;
 };
 
 type AgentReportPayload = {
@@ -572,6 +573,9 @@ export async function createApp(options: AppOptions) {
     const gatewayType = String(body.gatewayType || '').trim().slice(0, 16) || undefined;
     const gatewayUrl = String(body.gatewayUrl || '').trim().slice(0, 512) || undefined;
     const remoteIP = request.ip || request.headers['x-forwarded-for']?.toString().split(',')[0]?.trim();
+    const gatewayLatencyMs = typeof body.gatewayLatencyMs === 'number' && body.gatewayLatencyMs > 0
+      ? body.gatewayLatencyMs
+      : undefined;
 
     db.upsertAgentHeartbeat({
       backendId,
@@ -581,6 +585,7 @@ export async function createApp(options: AppOptions) {
       gatewayType,
       gatewayUrl,
       remoteIP,
+      gatewayLatencyMs,
       lastSeen: new Date().toISOString(),
     });
 

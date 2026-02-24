@@ -46,14 +46,15 @@ type reportPayload struct {
 }
 
 type heartbeatPayload struct {
-	BackendID       int    `json:"backendId"`
-	AgentID         string `json:"agentId"`
-	Hostname        string `json:"hostname,omitempty"`
-	Version         string `json:"version,omitempty"`
-	AgentVersion    string `json:"agentVersion,omitempty"`
-	ProtocolVersion int    `json:"protocolVersion"`
-	GatewayType     string `json:"gatewayType,omitempty"`
-	GatewayURL      string `json:"gatewayUrl,omitempty"`
+	BackendID          int    `json:"backendId"`
+	AgentID            string `json:"agentId"`
+	Hostname           string `json:"hostname,omitempty"`
+	Version            string `json:"version,omitempty"`
+	AgentVersion       string `json:"agentVersion,omitempty"`
+	ProtocolVersion    int    `json:"protocolVersion"`
+	GatewayType        string `json:"gatewayType,omitempty"`
+	GatewayURL         string `json:"gatewayUrl,omitempty"`
+	GatewayLatencyMs   int64  `json:"gatewayLatencyMs,omitempty"`
 }
 
 type configPayload struct {
@@ -82,8 +83,9 @@ type Runner struct {
 	retryBatch []domain.TrafficUpdate
 	retryID    string
 
-	lastConfigHash string
-	lastPolicyHash string
+	lastConfigHash   string
+	lastPolicyHash   string
+	gatewayLatencyMs int64
 }
 
 func NewRunner(cfg config.Config) *Runner {
@@ -205,6 +207,7 @@ func (r *Runner) runCollectorLoop(ctx context.Context, wg *sync.WaitGroup) {
 
 	failures := 0
 	for {
+		t0 := time.Now()
 		snapshots, err := r.gatewayClient.Collect(ctx)
 		delay := r.cfg.GatewayPollInterval
 		if err != nil {
@@ -213,6 +216,10 @@ func (r *Runner) runCollectorLoop(ctx context.Context, wg *sync.WaitGroup) {
 			log.Printf("[agent:%s] collector error (%d): %v", r.cfg.AgentID, failures, err)
 		} else {
 			failures = 0
+			latencyMs := time.Since(t0).Milliseconds()
+			r.mu.Lock()
+			r.gatewayLatencyMs = latencyMs
+			r.mu.Unlock()
 			r.ingestSnapshots(snapshots, time.Now().UnixMilli())
 		}
 
@@ -568,15 +575,20 @@ func (r *Runner) setRetryBatch(batch []domain.TrafficUpdate, id string) {
 }
 
 func (r *Runner) sendHeartbeat(ctx context.Context) error {
+	r.mu.Lock()
+	latencyMs := r.gatewayLatencyMs
+	r.mu.Unlock()
+
 	payload := heartbeatPayload{
-		BackendID:       r.cfg.BackendID,
-		AgentID:         r.cfg.AgentID,
-		Hostname:        r.hostname,
-		Version:         config.AgentVersion,
-		AgentVersion:    config.AgentVersion,
-		ProtocolVersion: config.AgentProtocolVersion,
-		GatewayType:     r.cfg.GatewayType,
-		GatewayURL:      r.cfg.GatewayEndpoint,
+		BackendID:        r.cfg.BackendID,
+		AgentID:          r.cfg.AgentID,
+		Hostname:         r.hostname,
+		Version:          config.AgentVersion,
+		AgentVersion:     config.AgentVersion,
+		ProtocolVersion:  config.AgentProtocolVersion,
+		GatewayType:      r.cfg.GatewayType,
+		GatewayURL:       r.cfg.GatewayEndpoint,
+		GatewayLatencyMs: latencyMs,
 	}
 	return r.postJSON(ctx, "/agent/heartbeat", payload)
 }

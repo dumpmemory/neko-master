@@ -119,7 +119,7 @@ export class BackendService {
             console.log(`[BackendService] Health check for ${backend.name}: ${health.status}${health.message ? ` - ${health.message}` : ''}`);
           }
           this.healthStatus.set(backend.id, health);
-          this.db.repos.health.writeHealthLog(backend.id, minute, health.status, undefined, health.message);
+          this.db.repos.health.writeHealthLog(backend.id, minute, health.status, health.latency, health.message);
           continue;
         }
 
@@ -557,6 +557,7 @@ export class BackendService {
     return {
       status: isOnline ? 'healthy' : 'unhealthy',
       lastChecked: now,
+      latency: isOnline && heartbeat.gatewayLatencyMs ? heartbeat.gatewayLatencyMs : undefined,
       message: isOnline
         ? `Agent ${heartbeat.agentId} online (last seen ${ageText})`
         : `Agent offline (last seen ${ageText}, timeout ${timeoutText})`,

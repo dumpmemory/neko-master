@@ -377,6 +377,7 @@ export const SCHEMA = {
       gateway_type TEXT,
       gateway_url TEXT,
       remote_ip TEXT,
+      gateway_latency_ms INTEGER,
       last_seen DATETIME NOT NULL,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (backend_id) REFERENCES backend_configs(id) ON DELETE CASCADE

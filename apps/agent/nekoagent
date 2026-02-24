@@ -8,7 +8,7 @@ AGENT_BIN="${NEKO_AGENT_BIN:-$INSTALL_DIR/neko-agent}"
 CONFIG_DIR="${NEKO_AGENT_CONFIG_DIR:-/etc/neko-agent}"
 STATE_DIR="${NEKO_AGENT_STATE_DIR:-/var/run/neko-agent}"
 AGENT_REPO="${NEKO_AGENT_REPO:-foru17/neko-master}"
-VERSION="0.2.0"
+VERSION="0.2.1"
 
 log() {
   printf '[%s] %s\n' "$PROG" "$1"
@@ -294,7 +294,8 @@ Usage:
   $PROG status <name>                        Show instance status
   $PROG logs <name>                          Tail logs
   $PROG list                                 List configured instances
-  $PROG upgrade [version]                    Upgrade manager+binary globally
+  $PROG restart-all                          Restart all running instances
+  $PROG upgrade [version]                    Upgrade manager+binary and restart running instances
   $PROG remove <name>                        Remove instance config/runtime
   $PROG delete <name>                        Alias of remove
   $PROG uninstall                            Uninstall nekoagent + binaries
@@ -538,7 +539,7 @@ cmd_start() {
   fi
   if is_running "$name"; then
     log "instance '$name' already running (pid $(cat "$(pid_file "$name")"))"
-    exit 0
+    return 0
   fi
 
   load_config "$name"
@@ -559,7 +560,7 @@ cmd_stop() {
   if ! is_running "$name"; then
     rm -f "$pf"
     log "instance '$name' is not running"
-    exit 0
+    return 0
   fi
   pid="$(cat "$pf")"
   kill "$pid" >/dev/null 2>&1 || true
@@ -620,6 +621,26 @@ cmd_list() {
   fi
 }
 
+cmd_restart_all() {
+  ensure_dirs
+  restarted_any=false
+  for f in "$CONFIG_DIR"/*.env; do
+    if [ ! -e "$f" ]; then
+      continue
+    fi
+    name="$(basename "$f" .env)"
+    if is_running "$name"; then
+      log "restarting '$name'..."
+      cmd_stop "$name" || true
+      cmd_start "$name"
+      restarted_any=true
+    fi
+  done
+  if [ "$restarted_any" = false ]; then
+    log "no running instances found"
+  fi
+}
+
 cmd_upgrade_global() {
   version_arg="${1:-latest}"
   os="$(normalize_os)"
@@ -650,26 +671,22 @@ cmd_upgrade_global() {
 
   do_download_manager "$target_tag"
 
-  if [ "$binary_changed" = true ]; then
-    restarted_any=false
-    for f in "$CONFIG_DIR"/*.env; do
-      if [ ! -e "$f" ]; then
-        continue
-      fi
-      name="$(basename "$f" .env)"
-      if is_running "$name"; then
-        log "restarting running instance '$name'..."
-        cmd_stop "$name" || true
-        cmd_start "$name"
-        restarted_any=true
-      fi
-    done
-
-    if [ "$restarted_any" = false ]; then
-      log "no running instances found; binary upgraded globally"
+  restarted_any=false
+  for f in "$CONFIG_DIR"/*.env; do
+    if [ ! -e "$f" ]; then
+      continue
     fi
-  else
-    log "binary unchanged; skipped instance restart"
+    name="$(basename "$f" .env)"
+    if is_running "$name"; then
+      log "restarting running instance '$name'..."
+      cmd_stop "$name" || true
+      cmd_start "$name"
+      restarted_any=true
+    fi
+  done
+
+  if [ "$restarted_any" = false ]; then
+    log "no running instances found; binary upgraded globally"
   fi
 
   log "upgrade complete: manager + binary at version $target_plain"
@@ -770,6 +787,9 @@ main() {
       ;;
     list)
       cmd_list
+      ;;
+    restart-all)
+      cmd_restart_all
       ;;
     version|-v|--version)
       version

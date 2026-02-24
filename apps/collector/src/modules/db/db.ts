@@ -56,6 +56,7 @@ export interface AgentHeartbeat {
   gatewayType?: string;
   gatewayUrl?: string;
   remoteIP?: string;
+  gatewayLatencyMs?: number;
   lastSeen: string;
 }
 
@@ -237,6 +238,14 @@ export class StatsDatabase {
     if (!hasDomainChains) {
       console.log('[DB] Adding chains column to domain_stats...');
       this.db.exec(`ALTER TABLE domain_stats ADD COLUMN chains TEXT;`);
+    }
+
+    // Migration: Add gateway_latency_ms column to agent_heartbeats
+    try {
+      this.db.exec(`ALTER TABLE agent_heartbeats ADD COLUMN gateway_latency_ms INTEGER`);
+      console.log('[DB] Migration: Added gateway_latency_ms column to agent_heartbeats');
+    } catch {
+      // Column already exists
     }
 
     // Migrate connection_logs data to new aggregation tables (one-time backfill)
@@ -1008,13 +1017,14 @@ export class StatsDatabase {
     gatewayType?: string;
     gatewayUrl?: string;
     remoteIP?: string;
+    gatewayLatencyMs?: number;
     lastSeen?: string;
   }): void {
     const stmt = this.db.prepare(`
       INSERT INTO agent_heartbeats (
-        backend_id, agent_id, hostname, version, gateway_type, gateway_url, remote_ip, last_seen, updated_at
+        backend_id, agent_id, hostname, version, gateway_type, gateway_url, remote_ip, gateway_latency_ms, last_seen, updated_at
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
       ON CONFLICT(backend_id) DO UPDATE SET
         agent_id = excluded.agent_id,
         hostname = excluded.hostname,
@@ -1022,6 +1032,7 @@ export class StatsDatabase {
         gateway_type = excluded.gateway_type,
         gateway_url = excluded.gateway_url,
         remote_ip = excluded.remote_ip,
+        gateway_latency_ms = excluded.gateway_latency_ms,
         last_seen = excluded.last_seen,
         updated_at = CURRENT_TIMESTAMP
     `);
@@ -1035,6 +1046,7 @@ export class StatsDatabase {
       input.gatewayType || null,
       input.gatewayUrl || null,
       input.remoteIP || null,
+      input.gatewayLatencyMs ?? null,
       lastSeen,
     );
   }
@@ -1049,6 +1061,7 @@ export class StatsDatabase {
         gateway_type as gatewayType,
         gateway_url as gatewayUrl,
         remote_ip as remoteIP,
+        gateway_latency_ms as gatewayLatencyMs,
         last_seen as lastSeen
       FROM agent_heartbeats
       WHERE backend_id = ?
