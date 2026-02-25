@@ -124,6 +124,7 @@ export function useDashboard(): UseDashboardReturn {
     activeTab === "overview" ||
     activeTab === "countries" ||
     activeTab === "proxies" ||
+    activeTab === "rules" ||
     activeTab === "devices";
 
   const wsSummaryFields = useMemo<SummaryField[] | undefined>(() => {
@@ -134,6 +135,8 @@ export function useDashboard(): UseDashboardReturn {
         return ["countryStats"];
       case "proxies":
         return ["proxyStats"];
+      case "rules":
+        return ["totals"];
       case "devices":
         return ["deviceStats"];
       default:
@@ -252,7 +255,7 @@ export function useDashboard(): UseDashboardReturn {
     (activeTab === "overview" || activeTab === "countries");
 
   const needsSummaryData =
-    activeTab === "overview" || activeTab === "proxies" || activeTab === "devices";
+    activeTab === "overview" || activeTab === "proxies" || activeTab === "rules" || activeTab === "devices";
   const needsCountries = activeTab === "overview" || activeTab === "countries";
 
   // Stats Queries
@@ -456,7 +459,7 @@ export function useDashboard(): UseDashboardReturn {
     wsConnected,
     wsRealtimeActive,
     isLoading: summaryQuery.isLoading || (backendsQuery.isLoading && !backends.length),
-    isTransitioning: summaryQuery.isPlaceholderData === true || summaryQuery.isLoading,
+    isTransitioning: (summaryQuery.isLoading || summaryQuery.isPlaceholderData || isManualRefreshing) && !queryError,
 
     // Actions
     setActiveTab,

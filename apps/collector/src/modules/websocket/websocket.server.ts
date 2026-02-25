@@ -573,6 +573,8 @@ export class StatsWebSocketServer {
   }
 
   private needsCoreSummary(fields: SummaryFieldMask): boolean {
+    // Note: countryStats and deviceStats are intentionally omitted here
+    // because they are fetched via independent DB queries/routes.
     return (
       fields.totals ||
       fields.topDomains ||
@@ -943,9 +945,6 @@ export class StatsWebSocketServer {
 
     const includeSummaryData = wantsFullSummary && this.hasAnySummaryFields(summaryFields);
     const needsCoreSummary = includeSummaryData && this.needsCoreSummary(summaryFields);
-    const summaryFieldsKey = includeSummaryData
-      ? this.buildSummaryFieldsKey(summaryFields)
-      : 'none';
 
     if (needsCoreSummary) {
       this.wsMetrics.fullSummaryCalls += 1;
@@ -959,7 +958,7 @@ export class StatsWebSocketServer {
     }
 
     const cacheTTL = this.getBaseSummaryCacheTTL(range);
-    const baseCacheKey = `${resolvedBackendId}|${range.start || ''}|${range.end || ''}|${summaryFieldsKey}`;
+    const baseCacheKey = `${resolvedBackendId}|${range.start || ''}|${range.end || ''}`;
     let baseCached = this.baseSummaryCache.get(baseCacheKey);
     const baseCacheValid = baseCached && Date.now() - baseCached.ts < cacheTTL;
 
@@ -982,38 +981,37 @@ export class StatsWebSocketServer {
       active: true 
     };
 
-    if (includeSummaryData && !baseCacheValid) {
-      const needsCountryStats = summaryFields.countryStats;
-      const needsDeviceStats = summaryFields.deviceStats;
+    if (includeSummaryData) {
+      const fetchCore = needsCoreSummary && (!baseCacheValid || baseCached?.summary === undefined);
+      const fetchCountry = summaryFields.countryStats && (!baseCacheValid || baseCached?.countryStats === undefined);
+      const fetchDevice = summaryFields.deviceStats && (!baseCacheValid || baseCached?.deviceStats === undefined);
 
-      const [summaryRes, countryStatsRes, deviceStatsRes] = await Promise.all([
-        needsCoreSummary
-          ? this.statsService.getSummaryWithRouting(resolvedBackendId, timeRange)
-          : Promise.resolve(null),
-        needsCountryStats
-          ? this.statsService.getCountryStatsWithRouting(resolvedBackendId, timeRange, 50)
-          : Promise.resolve(undefined),
-        needsDeviceStats
-          ? this.statsService.getDeviceStatsWithRouting(resolvedBackendId, timeRange, 50)
-          : Promise.resolve(undefined),
-      ]);
+      if (fetchCore || fetchCountry || fetchDevice) {
+        const [summaryRes, countryStatsRes, deviceStatsRes] = await Promise.all([
+          fetchCore
+            ? this.statsService.getSummaryWithRouting(resolvedBackendId, timeRange)
+            : Promise.resolve(null),
+          fetchCountry
+            ? this.statsService.getCountryStatsWithRouting(resolvedBackendId, timeRange, 50)
+            : Promise.resolve(undefined),
+          fetchDevice
+            ? this.statsService.getDeviceStatsWithRouting(resolvedBackendId, timeRange, 50)
+            : Promise.resolve(undefined),
+        ]);
 
-      const nextCached: {
-        summary?: { totalConnections: number; totalUpload: number; totalDownload: number; uniqueDomains: number; uniqueIPs: number };
-        topDomains?: DomainStats[];
-        topIPs?: IPStats[];
-        proxyStats?: ProxyStats[];
-        countryStats?: CountryStats[];
-        deviceStats?: DeviceStats[];
-        ruleStats?: RuleStats[];
-        hourlyStats?: HourlyStats[];
-        ts: number;
-      } = {
-        ts: Date.now(),
-      };
+        const nextCached: {
+          summary?: { totalConnections: number; totalUpload: number; totalDownload: number; uniqueDomains: number; uniqueIPs: number };
+          topDomains?: DomainStats[];
+          topIPs?: IPStats[];
+          proxyStats?: ProxyStats[];
+          countryStats?: CountryStats[];
+          deviceStats?: DeviceStats[];
+          ruleStats?: RuleStats[];
+          hourlyStats?: HourlyStats[];
+          ts: number;
+        } = (baseCacheValid && baseCached) ? { ...baseCached, ts: Date.now() } : { ts: Date.now() };
 
-      if (summaryRes) {
-        if (summaryFields.totals) {
+        if (fetchCore && summaryRes) {
           nextCached.summary = {
             totalConnections: summaryRes.totalConnections,
             totalUpload: summaryRes.totalUpload,
@@ -1021,49 +1019,43 @@ export class StatsWebSocketServer {
             uniqueDomains: summaryRes.totalDomains,
             uniqueIPs: summaryRes.totalIPs,
           };
-        }
-        if (summaryFields.topDomains) {
           nextCached.topDomains = summaryRes.topDomains;
-        }
-        if (summaryFields.topIPs) {
           nextCached.topIPs = summaryRes.topIPs;
-        }
-        if (summaryFields.proxyStats) {
           nextCached.proxyStats = summaryRes.proxyStats;
-        }
-        if (summaryFields.ruleStats) {
           nextCached.ruleStats = summaryRes.ruleStats || [];
-        }
-        if (summaryFields.hourlyStats) {
           nextCached.hourlyStats = summaryRes.hourlyStats;
         }
-      }
 
-      if (needsCountryStats) {
-        nextCached.countryStats = countryStatsRes;
-      }
+        if (fetchCountry) {
+          nextCached.countryStats = countryStatsRes;
+        }
 
-      if (needsDeviceStats) {
-        nextCached.deviceStats = deviceStatsRes;
-      }
+        if (fetchDevice) {
+          nextCached.deviceStats = deviceStatsRes;
+        }
 
-      baseCached = nextCached;
-      this.baseSummaryCache.set(baseCacheKey, nextCached);
-      for (const [key, val] of this.baseSummaryCache) {
-        if (Date.now() - val.ts > cacheTTL * 2) {
-          this.baseSummaryCache.delete(key);
+        baseCached = nextCached;
+        this.baseSummaryCache.set(baseCacheKey, nextCached);
+        
+        // Only run cache cleanup occasionally, e.g. when creating a new cache entry
+        if (!baseCacheValid) {
+          for (const [key, val] of this.baseSummaryCache) {
+            if (Date.now() - val.ts > cacheTTL * 2) {
+              this.baseSummaryCache.delete(key);
+            }
+          }
         }
       }
     }
 
-    const summary = includeSummaryData ? (baseCached?.summary || ZERO_BASE_SUMMARY) : ZERO_BASE_SUMMARY;
-    const topDomains = includeSummaryData ? (baseCached?.topDomains || []) : [];
-    const topIPs = includeSummaryData ? (baseCached?.topIPs || []) : [];
-    const proxyStats = includeSummaryData ? (baseCached?.proxyStats || []) : [];
-    const countryStats = includeSummaryData ? baseCached?.countryStats : undefined;
-    const deviceStats = includeSummaryData ? baseCached?.deviceStats : undefined;
-    const ruleStats = includeSummaryData ? baseCached?.ruleStats : undefined;
-    const hourlyStats = includeSummaryData ? (baseCached?.hourlyStats || []) : [];
+    const summary = includeSummaryData && summaryFields.totals ? (baseCached?.summary || ZERO_BASE_SUMMARY) : ZERO_BASE_SUMMARY;
+    const topDomains = includeSummaryData && summaryFields.topDomains ? (baseCached?.topDomains || []) : [];
+    const topIPs = includeSummaryData && summaryFields.topIPs ? (baseCached?.topIPs || []) : [];
+    const proxyStats = includeSummaryData && summaryFields.proxyStats ? (baseCached?.proxyStats || []) : [];
+    const countryStats = includeSummaryData && summaryFields.countryStats ? baseCached?.countryStats : undefined;
+    const deviceStats = includeSummaryData && summaryFields.deviceStats ? baseCached?.deviceStats : undefined;
+    const ruleStats = includeSummaryData && summaryFields.ruleStats ? baseCached?.ruleStats : undefined;
+    const hourlyStats = includeSummaryData && summaryFields.hourlyStats ? (baseCached?.hourlyStats || []) : [];
 
     const fetches: Promise<void>[] = [];
     

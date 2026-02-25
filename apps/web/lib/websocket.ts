@@ -151,7 +151,6 @@ function getWsUrlCandidates(): string[] {
     const hostForPath = runtime?.WS_HOST || window.location.host;
     const pathUrl = `${wsProtocol}://${hostForPath}/_cm_ws`;
 
-    // Local development usually has no reverse proxy for /_cm_ws.
     const preferDirect = process.env.NODE_ENV === 'development';
     if (preferDirect) {
       pushCandidate(directUrl);
@@ -380,7 +379,10 @@ export function useStatsWebSocket(options: UseStatsWebSocketOptions = {}) {
       };
 
       ws.onerror = (error) => {
-        console.error('[WebSocket] Connection error. URL:', wsUrl);
+        // Only log error if we've exhausted all candidate URLs or if the connection was already established
+        if (opened || wsUrlIndexRef.current >= wsUrls.length - 1) {
+          console.error('[WebSocket] Connection error. URL:', wsUrl);
+        }
         setStatus('error');
         onErrorRef.current?.(error);
       };
