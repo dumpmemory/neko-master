@@ -31,7 +31,7 @@ curl -fsSL https://raw.githubusercontent.com/foru17/neko-master/main/apps/agent/
 - `NEKO_GATEWAY_TOKEN`：网关认证 token
 - `NEKO_AGENT_VERSION`：`latest`（默认）或具体标签如 `agent-v0.2.0`
 - `NEKO_INSTALL_DIR`：安装目录（默认 `$HOME/.local/bin`）
-- `NEKO_AUTO_START`：`true|false`（默认 `true`）
+- `NEKO_AUTO_START`：`true|false`（默认 `true`，安装后立即启动并自动注册开机自启）
 - `NEKO_LOG`：`true|false`（默认 `true`）
 - `NEKO_LOG_FILE`：运行时日志文件路径
 - `NEKO_PACKAGE_URL`：自定义软件包 URL
@@ -78,8 +78,8 @@ nekoagent uninstall
 
 ## 开机自启配置
 
-`neko-agent` 默认以后台进程方式运行，由 `nekoagent` 管理，不自动注册系统服务。
-生产环境建议配置系统服务，确保重启后自动恢复运行。
+从 `agent-v0.2.1` 开始，安装脚本在 `NEKO_AUTO_START=true` 时会自动尝试注册系统开机自启（systemd / OpenWrt procd / launchd / cron 回退）。
+若当前环境权限不足或不支持自动注册，可使用手动方式配置系统服务，确保重启后自动恢复运行。
 
 ### Linux — systemd
 

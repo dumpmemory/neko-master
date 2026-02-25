@@ -42,7 +42,7 @@ detect_existing_install() {
 		echo "$(command -v nekoagent)"
 		return 0
 	fi
-	
+
 	# Check default install locations
 	for path in "$HOME/.local/bin/nekoagent" "/usr/local/bin/nekoagent"; do
 		if [ -x "$path" ]; then
@@ -50,7 +50,7 @@ detect_existing_install() {
 			return 0
 		fi
 	done
-	
+
 	# Not found
 	return 1
 }
@@ -133,10 +133,10 @@ compute_sha256() {
 use_local_agent() {
 	nekoagent_path="$1"
 	instance_name="${NEKO_INSTANCE_NAME:-backend-${NEKO_BACKEND_ID}}"
-	
+
 	echo "[neko-agent] detected existing installation: $nekoagent_path"
 	echo "[neko-agent] using local nekoagent to add instance..."
-	
+
 	# Build add command
 	set -- \
 		"$nekoagent_path" add "$instance_name" \
@@ -145,17 +145,26 @@ use_local_agent() {
 		--backend-token "$NEKO_BACKEND_TOKEN" \
 		--gateway-type "$NEKO_GATEWAY_TYPE" \
 		--gateway-url "$NEKO_GATEWAY_URL"
-	
+
 	if [ -n "${NEKO_GATEWAY_TOKEN:-}" ]; then
 		set -- "$@" --gateway-token "$NEKO_GATEWAY_TOKEN"
 	fi
-	
+
 	if [ "${NEKO_AUTO_START:-true}" != "true" ]; then
 		set -- "$@" --no-start
 	fi
 
 	# Execute
 	"$@"
+
+	if [ "${NEKO_AUTO_START:-true}" = "true" ]; then
+		if "$nekoagent_path" enable-autostart "$instance_name"; then
+			echo "[neko-agent] boot autostart enabled for: $instance_name"
+		else
+			echo "[neko-agent] warning: failed to enable boot autostart (instance still configured)"
+			echo "[neko-agent] hint: run manually: $nekoagent_path enable-autostart $instance_name"
+		fi
+	fi
 }
 
 show_plan() {
@@ -382,6 +391,15 @@ main() {
 		set -- "$@" --no-start
 	fi
 	"$cli_target" "$@"
+
+	if [ "$NEKO_AUTO_START" = "true" ]; then
+		if "$cli_target" enable-autostart "$NEKO_INSTANCE_NAME"; then
+			echo "[neko-agent] boot autostart enabled for: $NEKO_INSTANCE_NAME"
+		else
+			echo "[neko-agent] warning: failed to enable boot autostart (instance still configured)"
+			echo "[neko-agent] hint: run manually: $cli_target enable-autostart $NEKO_INSTANCE_NAME"
+		fi
+	fi
 
 	echo "[neko-agent] installed to: $install_target"
 	echo "[neko-agent] management cli: $cli_target"

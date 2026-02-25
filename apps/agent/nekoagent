@@ -111,6 +111,319 @@ normalize_arch() {
   esac
 }
 
+detect_service_manager() {
+  os="$(normalize_os)"
+  if [ "$os" = "linux" ] && [ -f "/etc/openwrt_release" ] && [ -f "/etc/rc.common" ]; then
+    echo "openwrt"
+    return 0
+  fi
+
+  if [ "$os" = "linux" ] && command -v systemctl >/dev/null 2>&1 && [ -d "/etc/systemd/system" ]; then
+    echo "systemd"
+    return 0
+  fi
+
+  if [ "$os" = "darwin" ] && command -v launchctl >/dev/null 2>&1; then
+    echo "launchd"
+    return 0
+  fi
+
+  if command -v crontab >/dev/null 2>&1; then
+    echo "cron"
+    return 0
+  fi
+
+  echo "none"
+}
+
+service_name_for_instance() {
+  name="$1"
+  printf 'neko-agent-%s\n' "$name"
+}
+
+runner_file() {
+  name="$1"
+  printf '%s/%s.run.sh\n' "$CONFIG_DIR" "$name"
+}
+
+require_linux_root() {
+  manager="$1"
+  if [ "$manager" = "systemd" ] || [ "$manager" = "openwrt" ]; then
+    if [ "$(id -u)" -ne 0 ]; then
+      err "$manager autostart requires root privileges"
+      exit 1
+    fi
+  fi
+}
+
+generate_runner_script() {
+  name="$1"
+  rf="$(runner_file "$name")"
+  cf="$(config_file "$name")"
+  ensure_dirs
+
+  cat > "$rf" <<EOF
+#!/usr/bin/env sh
+set -eu
+
+AGENT_BIN='$AGENT_BIN'
+CONF='$cf'
+
+[ -f "\$CONF" ] || {
+  echo "[nekoagent] error: config not found: \$CONF" >&2
+  exit 1
+}
+
+. "\$CONF"
+
+: "\${NEKO_SERVER:?missing NEKO_SERVER}"
+: "\${NEKO_BACKEND_ID:?missing NEKO_BACKEND_ID}"
+: "\${NEKO_BACKEND_TOKEN:?missing NEKO_BACKEND_TOKEN}"
+: "\${NEKO_GATEWAY_TYPE:?missing NEKO_GATEWAY_TYPE}"
+: "\${NEKO_GATEWAY_URL:?missing NEKO_GATEWAY_URL}"
+
+set -- "\$AGENT_BIN" \
+  --server-url "\$NEKO_SERVER" \
+  --backend-id "\$NEKO_BACKEND_ID" \
+  --backend-token "\$NEKO_BACKEND_TOKEN" \
+  --gateway-type "\$NEKO_GATEWAY_TYPE" \
+  --gateway-url "\$NEKO_GATEWAY_URL"
+
+[ -n "\${NEKO_GATEWAY_TOKEN:-}" ] && set -- "\$@" --gateway-token "\$NEKO_GATEWAY_TOKEN"
+[ -n "\${NEKO_AGENT_ID:-}" ] && set -- "\$@" --agent-id "\$NEKO_AGENT_ID"
+[ -n "\${NEKO_REPORT_INTERVAL:-}" ] && set -- "\$@" --report-interval "\$NEKO_REPORT_INTERVAL"
+[ -n "\${NEKO_HEARTBEAT_INTERVAL:-}" ] && set -- "\$@" --heartbeat-interval "\$NEKO_HEARTBEAT_INTERVAL"
+[ -n "\${NEKO_GATEWAY_POLL_INTERVAL:-}" ] && set -- "\$@" --gateway-poll-interval "\$NEKO_GATEWAY_POLL_INTERVAL"
+[ -n "\${NEKO_REQUEST_TIMEOUT:-}" ] && set -- "\$@" --request-timeout "\$NEKO_REQUEST_TIMEOUT"
+[ -n "\${NEKO_REPORT_BATCH_SIZE:-}" ] && set -- "\$@" --report-batch-size "\$NEKO_REPORT_BATCH_SIZE"
+[ -n "\${NEKO_MAX_PENDING_UPDATES:-}" ] && set -- "\$@" --max-pending-updates "\$NEKO_MAX_PENDING_UPDATES"
+[ -n "\${NEKO_STALE_FLOW_TIMEOUT:-}" ] && set -- "\$@" --stale-flow-timeout "\$NEKO_STALE_FLOW_TIMEOUT"
+
+set -- "\$@" --log="\${NEKO_LOG:-true}"
+exec "\$@"
+EOF
+
+  chmod +x "$rf"
+  printf '%s\n' "$rf"
+}
+
+write_systemd_unit() {
+  name="$1"
+  runner="$2"
+  service="$(service_name_for_instance "$name")"
+  unit_path="/etc/systemd/system/${service}.service"
+  cat > "$unit_path" <<EOF
+[Unit]
+Description=Neko Agent (${name})
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=${runner}
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOF
+  printf '%s\n' "$unit_path"
+}
+
+write_openwrt_init() {
+  name="$1"
+  runner="$2"
+  service="$(service_name_for_instance "$name")"
+  init_path="/etc/init.d/${service}"
+  cat > "$init_path" <<EOF
+#!/bin/sh /etc/rc.common
+
+USE_PROCD=1
+START=95
+STOP=10
+
+start_service() {
+  procd_open_instance
+  procd_set_param command "${runner}"
+  procd_set_param respawn 3600 5 5
+  procd_set_param stdout 1
+  procd_set_param stderr 1
+  procd_close_instance
+}
+EOF
+  chmod +x "$init_path"
+  printf '%s\n' "$init_path"
+}
+
+write_launchd_plist() {
+  name="$1"
+  runner="$2"
+  launch_dir="${HOME}/Library/LaunchAgents"
+  label="io.neko-master.agent.${name}"
+  plist_path="${launch_dir}/${label}.plist"
+  mkdir -p "$launch_dir"
+  cat > "$plist_path" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>${label}</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>${runner}</string>
+  </array>
+
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+
+  <key>StandardOutPath</key>
+  <string>$(log_file "$name")</string>
+  <key>StandardErrorPath</key>
+  <string>$(log_file "$name")</string>
+</dict>
+</plist>
+EOF
+  printf '%s\n' "$plist_path"
+}
+
+enable_autostart_systemd() {
+  name="$1"
+  runner="$2"
+  service="$(service_name_for_instance "$name")"
+  write_systemd_unit "$name" "$runner" >/dev/null
+  systemctl daemon-reload
+  systemctl enable "$service" >/dev/null
+  systemctl restart "$service"
+}
+
+enable_autostart_openwrt() {
+  name="$1"
+  runner="$2"
+  service="$(service_name_for_instance "$name")"
+  init_path="$(write_openwrt_init "$name" "$runner")"
+  "$init_path" enable
+  "$init_path" restart
+}
+
+enable_autostart_launchd() {
+  name="$1"
+  runner="$2"
+  plist_path="$(write_launchd_plist "$name" "$runner")"
+  launchctl unload "$plist_path" >/dev/null 2>&1 || true
+  launchctl load "$plist_path"
+}
+
+enable_autostart_cron() {
+  name="$1"
+  runner="$2"
+  marker="# nekoagent-autostart-${name}"
+  line="@reboot ${runner} >/dev/null 2>&1 ${marker}"
+  old_cron="$(crontab -l 2>/dev/null || true)"
+  {
+    printf '%s\n' "$old_cron" | grep -v "$marker" || true
+    printf '%s\n' "$line"
+  } | crontab -
+}
+
+disable_autostart_systemd() {
+  name="$1"
+  service="$(service_name_for_instance "$name")"
+  unit_path="/etc/systemd/system/${service}.service"
+  systemctl disable "$service" >/dev/null 2>&1 || true
+  systemctl stop "$service" >/dev/null 2>&1 || true
+  rm -f "$unit_path"
+  systemctl daemon-reload >/dev/null 2>&1 || true
+}
+
+disable_autostart_openwrt() {
+  name="$1"
+  service="$(service_name_for_instance "$name")"
+  init_path="/etc/init.d/${service}"
+  if [ -x "$init_path" ]; then
+    "$init_path" disable >/dev/null 2>&1 || true
+    "$init_path" stop >/dev/null 2>&1 || true
+  fi
+  rm -f "$init_path"
+}
+
+disable_autostart_launchd() {
+  name="$1"
+  label="io.neko-master.agent.${name}"
+  plist_path="${HOME}/Library/LaunchAgents/${label}.plist"
+  launchctl unload "$plist_path" >/dev/null 2>&1 || true
+  rm -f "$plist_path"
+}
+
+disable_autostart_cron() {
+  name="$1"
+  marker="# nekoagent-autostart-${name}"
+  old_cron="$(crontab -l 2>/dev/null || true)"
+  printf '%s\n' "$old_cron" | grep -v "$marker" | crontab -
+}
+
+cmd_enable_autostart() {
+  name="$1"
+  ensure_dirs
+  load_config "$name"
+  runner="$(generate_runner_script "$name")"
+  manager="$(detect_service_manager)"
+  require_linux_root "$manager"
+
+  if is_running "$name"; then
+    cmd_stop "$name" || true
+  fi
+
+  case "$manager" in
+    openwrt)
+      enable_autostart_openwrt "$name" "$runner"
+      ;;
+    systemd)
+      enable_autostart_systemd "$name" "$runner"
+      ;;
+    launchd)
+      enable_autostart_launchd "$name" "$runner"
+      ;;
+    cron)
+      enable_autostart_cron "$name" "$runner"
+      cmd_start "$name"
+      ;;
+    *)
+      err "autostart is not supported on this system"
+      exit 1
+      ;;
+  esac
+
+  log "autostart enabled for '$name' via $manager"
+}
+
+cmd_disable_autostart() {
+  name="$1"
+  manager="$(detect_service_manager)"
+  require_linux_root "$manager"
+  case "$manager" in
+    openwrt)
+      disable_autostart_openwrt "$name"
+      ;;
+    systemd)
+      disable_autostart_systemd "$name"
+      ;;
+    launchd)
+      disable_autostart_launchd "$name"
+      ;;
+    cron)
+      disable_autostart_cron "$name"
+      ;;
+    *)
+      ;;
+  esac
+  rm -f "$(runner_file "$name")"
+  log "autostart disabled for '$name'"
+}
+
 # Query GitHub releases API for the latest agent tag (e.g. "agent-v0.2.0").
 # Returns empty string on failure — callers must handle this gracefully.
 get_latest_remote_tag() {
@@ -293,6 +606,8 @@ Usage:
   $PROG restart <name>                       Restart agent instance
   $PROG status <name>                        Show instance status
   $PROG logs <name>                          Tail logs
+  $PROG enable-autostart <name>              Register boot autostart and start via service manager
+  $PROG disable-autostart <name>             Remove boot autostart registration
   $PROG list                                 List configured instances
   $PROG restart-all                          Restart all running instances
   $PROG upgrade [version]                    Upgrade manager+binary and restart running instances
@@ -339,6 +654,9 @@ Examples:
 
   # Check status
   $PROG status home-surge
+
+  # Register startup persistence
+  $PROG enable-autostart home-surge
 
   # View logs
   $PROG logs home-surge
@@ -695,12 +1013,15 @@ cmd_upgrade_global() {
 cmd_remove() {
   name="$1"
 
+  cmd_disable_autostart "$name" >/dev/null 2>&1 || true
+
   if is_running "$name"; then
     cmd_stop "$name"
   fi
 
   rm -f "$(pid_file "$name")"
   rm -f "$(log_file "$name")"
+  rm -f "$(runner_file "$name")"
 
   cf="$(config_file "$name")"
   if [ -f "$cf" ]; then
@@ -742,7 +1063,7 @@ main() {
       fi
       cmd_add "$@"
       ;;
-    start|stop|restart|status|logs)
+    start|stop|restart|status|logs|enable-autostart|disable-autostart)
       if [ "$#" -ne 1 ]; then
         usage
         exit 1
@@ -753,6 +1074,8 @@ main() {
         restart) cmd_stop "$1" || true; cmd_start "$1" ;;
         status)  cmd_status "$1" ;;
         logs)    cmd_logs "$1" ;;
+        enable-autostart) cmd_enable_autostart "$1" ;;
+        disable-autostart) cmd_disable_autostart "$1" ;;
       esac
       ;;
     upgrade)

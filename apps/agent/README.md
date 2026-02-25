@@ -111,7 +111,7 @@ Quiet mode (no runtime logs):
 Install script env (optional):
 
 - `NEKO_GATEWAY_TOKEN`: gateway token
-- `NEKO_AUTO_START`: `true|false` (default `true`)
+- `NEKO_AUTO_START`: `true|false` (default `true`, starts now and registers boot autostart when supported)
 - `NEKO_LOG`: `true|false` (default `true`)
 - `NEKO_INSTALL_DIR`: install path (default `$HOME/.local/bin`)
 - `NEKO_AGENT_VERSION`: release tag, default `latest` (for tagged version use `agent-vX.Y.Z`)

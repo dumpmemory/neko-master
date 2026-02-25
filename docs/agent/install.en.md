@@ -31,7 +31,7 @@ Optional env:
 - `NEKO_GATEWAY_TOKEN`: gateway auth token
 - `NEKO_AGENT_VERSION`: `latest` (default) or explicit tag like `agent-v0.2.0`
 - `NEKO_INSTALL_DIR`: install directory (default `$HOME/.local/bin`)
-- `NEKO_AUTO_START`: `true|false` (default `true`)
+- `NEKO_AUTO_START`: `true|false` (default `true`, starts immediately and auto-registers boot autostart)
 - `NEKO_LOG`: `true|false` (default `true`)
 - `NEKO_LOG_FILE`: runtime log file path
 - `NEKO_PACKAGE_URL`: custom package URL override
@@ -95,9 +95,10 @@ The `nekoagent` manager stores:
 
 ## Autostart on system boot
 
-By default `neko-agent` runs as a background process managed by `nekoagent`. It does not
-register a system service automatically. For production deployments, set up a system service
-so the agent survives reboots.
+Since `agent-v0.2.1`, when `NEKO_AUTO_START=true` the installer automatically attempts to
+register boot autostart (systemd / OpenWrt procd / launchd / cron fallback).
+If permissions are insufficient or the platform is unsupported, configure a system service
+manually so the agent survives reboots.
 
 ### Linux — systemd
 
