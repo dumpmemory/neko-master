@@ -6,6 +6,7 @@ import { useTranslations } from "next-intl";
 import { Button } from "@/components/ui/button";
 import { cn, formatBytes, formatNumber } from "@/lib/utils";
 import { useSettings, getFaviconUrl } from "@/lib/settings";
+import { useResponsiveItemCount } from "@/lib/hooks/use-responsive-item-count";
 import type { DomainStats } from "@neko-master/shared";
 
 interface TopDomainsSimpleProps {
@@ -30,7 +31,7 @@ export const TopDomainsSimple = React.memo(function TopDomainsSimple({
   const t = useTranslations("topDomains");
   const { settings } = useSettings();
   const faviconDisabled = settings.faviconProvider === "off";
-
+  const itemCount = useResponsiveItemCount();
   const sortedDomains = useMemo(() => {
     if (!domains?.length) return [];
     
@@ -45,11 +46,19 @@ export const TopDomainsSimple = React.memo(function TopDomainsSimple({
       }
     });
     
-    return sorted.slice(0, 6);
-  }, [domains, sortBy]);
-
+    return sorted.slice(0, itemCount);
+  }, [domains, sortBy, itemCount]);
   const hasData = sortedDomains.length > 0;
 
+  const maxTotal = useMemo(() => {
+    if (!sortedDomains.length) return 1;
+    return Math.max(...sortedDomains.map(d => d.totalDownload + d.totalUpload));
+  }, [sortedDomains]);
+
+  const totalTraffic = useMemo(() => {
+    if (!domains?.length) return 1;
+    return domains.reduce((sum, d) => sum + d.totalDownload + d.totalUpload, 0);
+  }, [domains]);
   // Get favicon URL using current provider
   const getFaviconForDomain = (domain: string) => {
     return getFaviconUrl(domain, settings.faviconProvider);
@@ -101,6 +110,8 @@ export const TopDomainsSimple = React.memo(function TopDomainsSimple({
       <div className="space-y-2 flex-1">
         {hasData ? sortedDomains.map((domain, index) => {
           const total = domain.totalDownload + domain.totalUpload;
+          const barPercent = (total / maxTotal) * 100;
+          const sharePercent = (total / totalTraffic) * 100;
           const badgeColor = index === 0
             ? "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400"
             : index === 1
@@ -108,13 +119,12 @@ export const TopDomainsSimple = React.memo(function TopDomainsSimple({
             : index === 2
             ? "bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400"
             : "bg-muted text-muted-foreground";
-
           return (
             <div
               key={domain.domain}
               className="p-2.5 rounded-xl border border-border/50 bg-card/50 hover:bg-card transition-colors"
             >
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 mb-1.5">
                 <span className={cn(
                   "w-5 h-5 rounded-md text-[10px] font-bold flex items-center justify-center shrink-0",
                   badgeColor
@@ -153,38 +163,61 @@ export const TopDomainsSimple = React.memo(function TopDomainsSimple({
                 </span>
               </div>
 
-              {/* Stats */}
-              <div className="pl-7 mt-1">
-                <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              {/* Row 2: Progress bar + Stats */}
+              <div className="pl-7 space-y-1.5">
+                {/* Progress bar */}
+                <div className="h-1.5 rounded-full bg-muted overflow-hidden flex">
+                  <div
+                    className="h-full bg-blue-500 dark:bg-blue-400"
+                    style={{ width: `${(domain.totalDownload / total) * barPercent}%` }}
+                  />
+                  <div
+                    className="h-full bg-purple-500 dark:bg-purple-400"
+                    style={{ width: `${(domain.totalUpload / total) * barPercent}%` }}
+                  />
+                </div>
+                {/* Stats */}
+                <div className="flex items-center justify-between text-xs text-muted-foreground">
+                  <div className="flex items-center gap-2">
                   <span className="text-blue-500 dark:text-blue-400">↓ {formatBytes(domain.totalDownload)}</span>
                   <span className="text-purple-500 dark:text-purple-400">↑ {formatBytes(domain.totalUpload)}</span>
-                  <span className="flex items-center gap-1 tabular-nums">
-                    <Link2 className="w-3 h-3" />
-                    {formatNumber(domain.totalConnections)}
+                    <span className="flex items-center gap-1 tabular-nums">
+                      <Link2 className="w-3 h-3" />
+                      {formatNumber(domain.totalConnections)}
+                    </span>
+                  </div>
+                  <span className="tabular-nums">
+                    {sharePercent.toFixed(1)}%
                   </span>
                 </div>
               </div>
             </div>
           );
         }) : isLoading ? (
-          // Skeleton loading state - 6 items with 2 rows each to match actual content height
-          Array.from({ length: 6 }).map((_, i) => (
+          // Skeleton loading state - dynamic items with 2 rows each to match actual content height
+          Array.from({ length: itemCount }).map((_, i) => (
             <div
               key={i}
               className="p-2.5 rounded-xl border border-border/50 bg-card/50"
             >
               {/* Row 1: Rank + Icon + Name + Total */}
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 mb-1.5">
                 <div className="w-5 h-5 rounded-md bg-muted/60 animate-pulse shrink-0" />
                 <div className="w-5 h-5 rounded bg-muted/60 animate-pulse shrink-0" />
                 <div className="flex-1 h-4 bg-muted/60 rounded animate-pulse" />
                 <div className="w-12 h-4 bg-muted/60 rounded animate-pulse shrink-0" />
               </div>
-              {/* Row 2: Stats placeholder to match actual height - use mt-1 like real data */}
-              <div className="pl-7 mt-1 flex items-center gap-2">
-                <div className="w-16 h-3 bg-muted/60 rounded animate-pulse" />
-                <div className="w-16 h-3 bg-muted/60 rounded animate-pulse" />
-                <div className="w-12 h-3 bg-muted/60 rounded animate-pulse" />
+              {/* Row 2: Progress bar + Stats placeholder */}
+              <div className="pl-7 space-y-1.5">
+                <div className="h-1.5 rounded-full bg-muted/60 animate-pulse" />
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <div className="w-14 h-3 bg-muted/60 rounded animate-pulse" />
+                    <div className="w-14 h-3 bg-muted/60 rounded animate-pulse" />
+                    <div className="w-10 h-3 bg-muted/60 rounded animate-pulse" />
+                  </div>
+                  <div className="w-8 h-3 bg-muted/60 rounded animate-pulse" />
+                </div>
               </div>
             </div>
           ))

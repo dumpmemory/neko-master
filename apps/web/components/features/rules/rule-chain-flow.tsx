@@ -1017,6 +1017,7 @@ function UnifiedRuleChainFlowInner({
     const element = target as HTMLElement & {
       webkitRequestFullscreen?: () => Promise<void> | void;
     };
+
     const fullscreenElement =
       doc.fullscreenElement ?? doc.webkitFullscreenElement ?? null;
 

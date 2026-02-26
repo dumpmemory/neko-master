@@ -6,6 +6,7 @@ import { useTranslations } from "next-intl";
 import { Button } from "@/components/ui/button";
 import { cn, formatBytes, formatNumber } from "@/lib/utils";
 import { useIsWindows } from "@/lib/hooks/use-is-windows";
+import { useResponsiveItemCount } from "@/lib/hooks/use-responsive-item-count";
 import type { ProxyStats } from "@neko-master/shared";
 
 interface TopProxiesSimpleProps {
@@ -35,6 +36,7 @@ export const TopProxiesSimple = React.memo(
   }: TopProxiesSimpleProps) {
     const t = useTranslations("topProxies");
     const isWindows = useIsWindows();
+    const itemCount = useResponsiveItemCount();
 
     const sortedProxies = useMemo(() => {
       if (!proxies?.length) return [];
@@ -49,8 +51,8 @@ export const TopProxiesSimple = React.memo(
         }
       });
 
-      return sorted.slice(0, 6);
-    }, [proxies, sortBy]);
+      return sorted.slice(0, itemCount);
+    }, [proxies, sortBy, itemCount]);
 
     const hasData = sortedProxies.length > 0;
 
@@ -189,8 +191,8 @@ export const TopProxiesSimple = React.memo(
               </div>
             );
           }) : isLoading ? (
-            // Skeleton loading state - 6 items with 2 rows each to match actual content height
-            Array.from({ length: 6 }).map((_, i) => (
+          // Skeleton loading state - dynamic items with 2 rows each to match actual content height
+            Array.from({ length: itemCount }).map((_, i) => (
               <div
                 key={i}
                 className="p-2.5 rounded-xl border border-border/50 bg-card/50"

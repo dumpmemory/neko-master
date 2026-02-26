@@ -34,11 +34,6 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
 import { Switch } from "@/components/ui/switch";
 import { TimeRangePicker, LanguageSwitcher, ThemeToggle, ClientOnly } from "@/components/common";
 import { cn } from "@/lib/utils";
@@ -414,52 +409,36 @@ export function Header({
             </div>
           )}
 
-          {/* Mobile: Backend warning in top actions */}
-          {backendStatus === "unhealthy" && (
-            <div className="sm:hidden">
-              <Popover>
-                <PopoverTrigger asChild>
-                  <Button
-                    size="icon"
-                    variant="ghost"
-                    aria-label={dashboardT("backendUnavailable")}
-                    className="relative h-9 w-9 text-rose-500 hover:bg-rose-500/10 hover:text-rose-500"
-                  >
-                    <span className="absolute top-1.5 right-1.5 h-1.5 w-1.5 rounded-full bg-rose-500 animate-ping [animation-duration:900ms]" />
-                    <AlertTriangle className="h-4 w-4" />
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent
-                  align="end"
-                  side="bottom"
-                  className="w-[240px] p-3"
-                >
-                  <div className="flex items-start gap-2">
-                    <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-rose-500" />
-                    <div className="min-w-0">
-                      <p className="text-sm font-medium text-rose-600 dark:text-rose-400">
-                        {dashboardT("backendUnavailable")}
-                      </p>
-                      <p className="text-xs text-muted-foreground">
-                        {backendStatusHint ||
-                          dashboardT("backendUnavailableHint")}
-                      </p>
-                    </div>
-                  </div>
-                </PopoverContent>
-              </Popover>
-            </div>
-          )}
+
 
           {/* Mobile: More Options Dropdown */}
           <div className="sm:hidden">
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="icon" className="h-9 w-9">
+                <Button variant="ghost" size="icon" className="h-9 w-9 relative">
+                  {backendStatus === "unhealthy" && (
+                    <span className="absolute top-1.5 right-1.5 h-1.5 w-1.5 rounded-full bg-rose-500 animate-ping [animation-duration:900ms]" />
+                  )}
                   <MoreVertical className="w-5 h-5" />
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-56">
+                {/* Backend Warning - show when unhealthy */}
+                {backendStatus === "unhealthy" && (
+                  <>
+                    <DropdownMenuLabel className="flex items-center gap-2 text-rose-600 dark:text-rose-400">
+                      <AlertTriangle className="w-4 h-4" />
+                      {dashboardT("backendUnavailable")}
+                    </DropdownMenuLabel>
+                    <div className="px-2 py-1.5">
+                      <p className="text-xs text-muted-foreground">
+                        {backendStatusHint || dashboardT("backendUnavailableHint")}
+                      </p>
+                    </div>
+                    <DropdownMenuSeparator />
+                  </>
+                )}
+
                 {/* Showcase Mode Indicator */}
                 {isShowcase && (
                   <>
@@ -470,7 +449,6 @@ export function Header({
                     <DropdownMenuSeparator />
                   </>
                 )}
-
                 {/* Auto Refresh Toggle */}
                 <DropdownMenuLabel className="flex items-center gap-2">
                   <RefreshCw className="w-4 h-4" />
@@ -498,6 +476,12 @@ export function Header({
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
 
+                {/* Manual Refresh */}
+                <DropdownMenuItem onClick={onRefresh} disabled={isLoading}>
+                  <RefreshCw className={cn("w-4 h-4 mr-2", isLoading && "animate-spin")} />
+                  {dashboardT("refresh")}
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
                 {/* Theme Selection */}
                 <DropdownMenuLabel className="flex items-center gap-2">
                   {theme === "dark" ? (
@@ -585,20 +569,21 @@ export function Header({
             </DropdownMenu>
           </div>
 
-          {/* Refresh Button - show when auto refresh is off or backend is unhealthy */}
+          {/* Refresh Button - show when auto refresh is off or backend is unhealthy (desktop only) */}
           {(!autoRefresh || backendStatus === "unhealthy") && (
             <Button
               variant="outline"
               size="icon"
               onClick={onRefresh}
               disabled={isLoading}
-              className="h-9 w-9"
+              className="h-9 w-9 hidden sm:flex"
             >
               <RefreshCw
                 className={cn("w-4 h-4", isLoading && "animate-spin")}
               />
             </Button>
           )}
+
         </div>
       </div>
       {/* Transition progress bar - sits at the bottom edge of the header */}

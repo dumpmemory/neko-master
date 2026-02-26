@@ -6,6 +6,7 @@ import { useTranslations, useLocale } from "next-intl";
 import { Button } from "@/components/ui/button";
 import { CountryFlag } from "@/components/features/countries";
 import { formatBytes, formatNumber, cn } from "@/lib/utils";
+import { useResponsiveItemCount } from "@/lib/hooks/use-responsive-item-count";
 import type { CountryStats } from "@neko-master/shared";
 
 interface TopCountriesSimpleProps {
@@ -52,6 +53,7 @@ export const TopCountriesSimple = React.memo(function TopCountriesSimple({
 }: TopCountriesSimpleProps) {
   const t = useTranslations("topCountries");
   const locale = useLocale();
+  const itemCount = useResponsiveItemCount();
 
   const sortedCountries = useMemo(() => {
     if (!countries?.length) return [];
@@ -62,8 +64,8 @@ export const TopCountriesSimple = React.memo(function TopCountriesSimple({
         }
         return b.totalConnections - a.totalConnections;
       })
-      .slice(0, 6);
-  }, [countries, sortBy]);
+      .slice(0, itemCount);
+  }, [countries, sortBy, itemCount]);
 
   const hasData = sortedCountries.length > 0;
 
@@ -184,8 +186,8 @@ export const TopCountriesSimple = React.memo(function TopCountriesSimple({
             </div>
           );
         }) : isLoading ? (
-          // Skeleton loading state - 6 items with 2 rows each to match actual content height
-          Array.from({ length: 6 }).map((_, i) => (
+          // Skeleton loading state - dynamic items with 2 rows each to match actual content height
+          Array.from({ length: itemCount }).map((_, i) => (
             <div
               key={i}
               className="p-2.5 rounded-xl border border-border/50 bg-card/50"
