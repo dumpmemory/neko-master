@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.6] - 2026-03-26
+
+### Fixed
+
+- **WebSocket port config ineffective in Docker direct-access mode** 🐛
+  - Fixed an issue where setting `WS_EXTERNAL_PORT` had no effect: the frontend still connected to the Web port instead of the configured WS port
+  - Root cause: in production mode, `/_cm_ws` (using `window.location.host`, i.e. the Web port) was tried first; since Next.js has no WebSocket proxy for that path, the connection failed and fell back to HTTP polling before the direct-port URL was ever tried
+  - Fix: when `runtime-config.WS_PORT` is present (i.e. `WS_EXTERNAL_PORT` is set), the direct-port URL is now preferred — no need to set `NEXT_PUBLIC_WS_URL` as a workaround
+
 ## [1.3.5] - 2026-03-03
 
 ### Added

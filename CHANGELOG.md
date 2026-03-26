@@ -5,6 +5,15 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 并且本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/spec/v2.0.0.html)。
 
+## [1.3.6] - 2026-03-26
+
+### 修复
+
+- **WebSocket 端口配置在 Docker 直连场景下无效** 🐛
+  - 修复生产环境下 `WS_EXTERNAL_PORT` 设置后，前端仍连接到 Web 端口（而非 WS 端口）的问题
+  - 根因：生产模式优先尝试 `/_cm_ws` 路径（使用 `window.location.host`，即 Web 端口），而非配置的 WS 端口；`/_cm_ws` 在 Next.js 中没有 WebSocket 代理，导致连接失败后才 fallback 到直连端口，但此时已触发 HTTP 轮询回退
+  - 修复方式：当 `runtime-config.WS_PORT` 存在时（即用户配置了 `WS_EXTERNAL_PORT`），优先使用直连端口 URL，无需再设置 `NEXT_PUBLIC_WS_URL`
+
 ## [1.3.5] - 2026-03-03
 
 ### 新增

@@ -151,7 +151,11 @@ function getWsUrlCandidates(): string[] {
     const hostForPath = runtime?.WS_HOST || window.location.host;
     const pathUrl = `${wsProtocol}://${hostForPath}/_cm_ws`;
 
-    const preferDirect = process.env.NODE_ENV === 'development';
+    // Prefer direct port URL when an explicit WS port is configured at runtime
+    // (e.g. Docker with WS_EXTERNAL_PORT), since /_cm_ws has no WS proxy in Next.js.
+    // In development, also prefer direct so the dev WS server is hit first.
+    const preferDirect =
+      process.env.NODE_ENV === 'development' || !!runtime?.WS_PORT;
     if (preferDirect) {
       pushCandidate(directUrl);
       pushCandidate(pathUrl);

@@ -415,7 +415,7 @@ The script will automatically detect and suggest available ports.
 | `WS_EXTERNAL_PORT` | `3002` | External WS port mapping in `docker-compose.yml`; also used for direct WS port inference | Direct WS access without proxy and external WS port changed |
 | `NEXT_PUBLIC_API_URL` | empty | Override frontend API base URL (e.g. `https://api.example.com`) | API is not same-origin `/api` |
 | `NEXT_PUBLIC_WS_URL` | empty | Override frontend WS URL (absolute URL or `/custom_ws`) | Custom WS path/domain |
-| `NEXT_PUBLIC_WS_PORT` | `3002` | WS direct-connection fallback port (build-time exposed) | Direct WS mode needs explicit port |
+| `NEXT_PUBLIC_WS_PORT` | `3002` | WS direct-connection fallback port (**build-time only — setting this at Docker runtime has no effect**; use `WS_EXTERNAL_PORT` instead) | Only for custom source builds |
 | `API_URL` | `http://localhost:3001` | Next.js `/api` rewrite target (mainly source/custom builds) | API listen address changed |
 | `COOKIE_SECRET` | auto-generated | Cookie signing secret; if not fixed, sessions can be invalidated after restart when data dir is not persisted | Strongly recommended in production |
 | `GEOIP_LOOKUP_PROVIDER` | `online` | IP geolocation source (`online` / `local`) | Default to local MMDB lookup |
@@ -442,7 +442,7 @@ The script will automatically detect and suggest available ports.
 
 1. API client base: `runtime-config.API_URL` → `NEXT_PUBLIC_API_URL` → same-origin `/api`
 2. `/api` server-side rewrite target: `API_URL` (default `http://localhost:3001`, applied in Next.js rewrites)
-3. WS URL: `runtime-config.WS_URL` → `NEXT_PUBLIC_WS_URL` → auto candidates (production prefers `/_cm_ws`, then direct port fallback)
+3. WS URL: `runtime-config.WS_URL` → `NEXT_PUBLIC_WS_URL` → auto candidates (when `runtime-config.WS_PORT` is set, direct port is preferred; otherwise `/_cm_ws` is tried first)
 4. WS port: `runtime-config.WS_PORT` (from `WS_EXTERNAL_PORT`) → `NEXT_PUBLIC_WS_PORT` → `3002`
 5. In normal deployments, `NEXT_PUBLIC_WS_URL` is usually unnecessary unless you use a custom WS path/domain
 

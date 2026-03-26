@@ -406,7 +406,7 @@ curl -fsSL https://raw.githubusercontent.com/foru17/neko-master/main/setup.sh | 
 | `WS_EXTERNAL_PORT` | `3002` | `docker-compose.yml` 的 WS 外部端口映射；同时用于前端直连 WS 端口推断 | 非反代直连 WS 且外部端口变化时 |
 | `NEXT_PUBLIC_API_URL` | 空 | 覆盖前端 API 基地址（如 `https://api.example.com`） | API 不走同域 `/api` 时 |
 | `NEXT_PUBLIC_WS_URL` | 空 | 覆盖前端 WS 地址（支持绝对 URL 或 `/custom_ws`） | WS 路径/域名自定义时 |
-| `NEXT_PUBLIC_WS_PORT` | `3002` | WS 直连端口兜底值（构建时注入） | 非反代直连 WS 且需显式指定端口时 |
+| `NEXT_PUBLIC_WS_PORT` | `3002` | WS 直连端口兜底值（**构建时注入，Docker 运行时设置无效**；Docker 场景请用 `WS_EXTERNAL_PORT`） | 仅源码自构建时需要自定义端口 |
 | `API_URL` | `http://localhost:3001` | Next.js `/api` rewrite 目标（主要用于源码/自构建） | 你修改了 API 实际监听地址时 |
 | `COOKIE_SECRET` | 自动生成 | Cookie 签名密钥；未固定时会自动生成（数据目录不持久化时重启后会话会失效） | 生产环境强烈建议固定配置 |
 | `GEOIP_LOOKUP_PROVIDER` | `online` | IP 地理查询来源（`online`/`local`） | 需要默认走本地 MMDB 查询时 |
@@ -433,7 +433,7 @@ curl -fsSL https://raw.githubusercontent.com/foru17/neko-master/main/setup.sh | 
 
 1. API 客户端基址：`runtime-config.API_URL` → `NEXT_PUBLIC_API_URL` → 默认同域 `/api`
 2. `/api` 的服务端转发目标：`API_URL`（默认 `http://localhost:3001`，在 Next.js rewrite 中生效）
-3. WS URL：`runtime-config.WS_URL` → `NEXT_PUBLIC_WS_URL` → 自动候选（生产优先 `/_cm_ws`，失败再尝试直连端口）
+3. WS URL：`runtime-config.WS_URL` → `NEXT_PUBLIC_WS_URL` → 自动候选（`runtime-config.WS_PORT` 存在时优先直连端口，否则优先 `/_cm_ws`）
 4. WS 端口：`runtime-config.WS_PORT`（来自 `WS_EXTERNAL_PORT`）→ `NEXT_PUBLIC_WS_PORT` → `3002`
 5. 默认部署下无需手动配置 `NEXT_PUBLIC_WS_URL`；仅当你自定义 WS 路径/域名时再设置
 

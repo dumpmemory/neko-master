@@ -26,7 +26,9 @@ const nextConfig: NextConfig = {
   outputFileTracingRoot: join(__dirname, '../..'),
   env: {
     NEXT_PUBLIC_APP_VERSION: rootPkg.version || "0.0.0",
-    // Expose WebSocket port to browser (for client-side use)
+    // NOTE: NEXT_PUBLIC_WS_PORT is a build-time variable baked into the JS bundle.
+    // At runtime (e.g. Docker), use WS_EXTERNAL_PORT env var instead — it is written
+    // into runtime-config.js by docker-start.sh and read via window.__RUNTIME_CONFIG__.
     NEXT_PUBLIC_WS_PORT: process.env.NEXT_PUBLIC_WS_PORT || "3002",
   },
   // Turbopack configuration (formerly experimental.turbopack)
